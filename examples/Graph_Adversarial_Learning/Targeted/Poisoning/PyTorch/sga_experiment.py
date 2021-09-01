@@ -228,25 +228,26 @@ def run(data_dir: str, dataset: str, attack: str, attack_params: Dict[str, Any],
 
     eval_surrogate = trainer_surrogate.evaluate(splits.test_nodes)
     print(eval_surrogate)
+
     if "Vanilla SGC" in model_label:
-        trainer_attacked_model = gg.gallery.nodeclas.SGC(
-            seed=seed, device=device).setup_graph(graph).build()
+        model_class = gg.gallery.nodeclas.SGC
     elif "Vanilla GCN" in model_label:
-        trainer_attacked_model = gg.gallery.nodeclas.GCN(
-            seed=seed, device=device).setup_graph(graph).build()
+        model_class = gg.gallery.nodeclas.GCN
     else:
         assert False
 
-    his = trainer_attacked_model.fit(splits.train_nodes,
-                                     splits.val_nodes,
-                                     verbose=1,
-                                     epochs=3000)
-    eval_attacked_model = trainer_attacked_model.evaluate(splits.test_nodes)
-    print(eval_attacked_model)
+    trainer_victim_model = model_class(
+        seed=seed, device=device).setup_graph(graph).build()
+    his = trainer_victim_model.fit(splits.train_nodes,
+                                   splits.val_nodes,
+                                   verbose=1,
+                                   epochs=3000)
+    eval_victim_model = trainer_victim_model.evaluate(splits.test_nodes)
+    print(eval_victim_model)
 
     tmp_nodes = np.array(nodes)
     if nodes is None:
-        logits = trainer_attacked_model.predict(
+        logits = eval_victim_model.predict(
             splits.test_nodes, transform="softmax")
         min_node_degree = int(1 / min(epsilons))
 
@@ -257,62 +258,65 @@ def run(data_dir: str, dataset: str, attack: str, attack_params: Dict[str, Any],
     print(tmp_nodes)
 
     for target in tmp_nodes:
-        ################### Attacker model ############################
-        attacker = gg.attack.targeted.SGA(
-            graph, seed=seed, device=device).process(trainer_surrogate)
-        attacker.attack(target)
-
-        ################### Victim model ############################
-        # Before attack
         target_label = graph.node_label[target]
 
-        trainer_attacked_model = trainer_attacked_model.setup_graph(graph)
-        original_predict = trainer_attacked_model.predict(
-            target, transform="softmax")
-        original_classification_statistics = classification_statistics(
-            original_predict, target_label)
+        trainer_victim_model = trainer_victim_model.setup_graph(graph)
+        initial_logits = trainer_victim_model.predict(target,
+                                                      transform="softmax")
+        initial_classification_statistics = classification_statistics(initial_logits,
+                                                                      target_label)
 
-        trainer_attacked_model = trainer_attacked_model.setup_graph(attacker.g)
-        original_predict_attacked = trainer_attacked_model.predict(
-            target, transform="softmax")
-        original_classification_statistics_attacked = classification_statistics(
-            original_predict_attacked, target_label)
+        ################### Attacker model ############################
+        attacker = gg.attack.targeted.SGA(graph.copy(),
+                                          seed=seed,
+                                          device=device).process(trainer_surrogate)
+        attacker.attack(target)
+        attacker.show()
 
-        # After attack
-        trainer = gg.gallery.nodeclas.SGC(
-            seed=seed, device=device).setup_graph(attacker.g).build()
-        his = trainer.fit(splits.train_nodes,
-                          splits.val_nodes,
-                          verbose=1,
-                          epochs=3000)
-        perturbed_predict = trainer.predict(target, transform="softmax")
-        perturbed_classification_statistics = classification_statistics(
-            perturbed_predict, target_label)
+        ################### Evasion Evaluation ############################
+        trainer_victim_model = trainer_victim_model.setup_graph(attacker.g)
+        evasion_logits = trainer_victim_model.predict(target,
+                                                      transform="softmax")
+        evasion_classification_statistics = classification_statistics(evasion_logits,
+                                                                      target_label)
+
+        ################### Poisoning Evaluation ############################
+        trainer_poisoned_model = model_class(seed=seed,
+                                             device=device).setup_graph(attacker.g).build()
+        his = trainer_poisoned_model.fit(splits.train_nodes,
+                                         splits.val_nodes,
+                                         verbose=1,
+                                         epochs=3000)
+        poisoned_logits = trainer_poisoned_model.predict(target,
+                                                         transform="softmax")
+        poisoned_classification_statistics = classification_statistics(poisoned_logits,
+                                                                       target_label)
 
         results.append({
             'label': model_label,
             'epsilon': 1.0,
             'n_perturbations': attacker.num_budgets,
             'degree': attacker.num_budgets,
+            'perturbed_edges': attacker.edge_flips,
             'target': target_label,
             'node_id': target,
             'evasion': {
-                'logits_evasion': list(original_predict_attacked),
-                **original_classification_statistics_attacked,
-                'initial_logits': list(original_predict),
+                'logits_evasion': list(evasion_logits),
+                **evasion_classification_statistics,
+                'initial_logits': list(initial_logits),
                 **{
                     f'initial_{key}': value
                     for key, value
-                    in original_classification_statistics.items()
+                    in initial_classification_statistics.items()
                 }
             },
             'poisoning': {
-                'logits_poisoning': list(perturbed_predict),
-                **perturbed_classification_statistics,
+                'logits_poisoning': list(poisoned_logits),
+                **poisoned_classification_statistics,
             }
         })
     print(eval_surrogate)
-    print(eval_attacked_model)
+    print(eval_victim_model)
     return {
         'results': results
     }
