@@ -32,7 +32,7 @@ class SGC(Trainer):
     def model_step(self,
                    hids=[],
                    acts=[],
-                   dropout=0.5,
+                   dropout=0.0,
                    weight_decay=5e-5,
                    lr=0.2,
                    bias=True):

@@ -1,0 +1,65 @@
+seml:
+  name: sga_cora_citeseer
+  executable: examples/Graph_Adversarial_Learning/Targeted/Poisoning/PyTorch/sga_experiment.py
+  project_root_dir: ./
+  output_dir: ./output
+  conda_environment: graphgallery
+
+slurm:
+  experiments_per_job: 1
+  sbatch_options:
+    gres: gpu:1       # num GPUs
+    qos: studentprio
+    mem: 16G          # memory
+    cpus-per-task: 4  # num cores
+    time: 0-02:30     # max time, D-HH:MM
+    # partition: cpu
+    # qos: studentpriocpu
+
+fixed:
+  data_dir: datasets/
+  model_storage_type: pretrained
+  surrogate_model_storage_type: pretrained
+  artifact_dir: cache
+  nodes: None
+  nodes_topk: 40
+  device: cuda
+  data_device: cuda
+  binary_attr: False
+  make_undirected: True
+  attack: SGA
+  surrogate_model_label: Vanilla SGC
+  evaluate_poisoning: True
+
+grid:
+  epsilons:
+    type: choice
+    options:
+      # - [0.1]
+      # - [0.25]
+      # - [0.5]
+      # - [0.75]
+      - [1.0]
+  seed:
+    type: choice
+    options:
+      - 0
+      - 1
+      - 5
+  # nodes:
+  #   type: choice
+    # seed 0 vanilla SGC attack nodes
+    #options: [[2259], [1787], [1254], [1933], [264], [84], [1063], [86], [82], [466], [1613], [732], [2809], [999], [1449], [2492], [1832], [1827], [2555], [642], [984], [1207], [710], [1511], [1523], [1556], [1059], [2284], [2194], [380], [266], [1508], [205], [867], [1718], [2096], [312], [173], [1234], [699]]
+    # seed 0 vanilla GCN attack nodes
+    #options: [[84], [171], [203], [264], [399], [492], [642], [672], [717], [743], [1063], [1096], [1110], [1158], [1159], [1198], [1254], [1363], [1449], [1752], [1771], [1787], [1794], [1827], [1832], [1867], [1933], [1983], [2022], [2087], [2193], [2212], [2259], [2357], [2492], [2508], [2521], [2704], [2802], [2809]]
+    # seed 0 vanilla GCN graphgallery impl
+    #options: [[2259], [1787], [1933], [264], [2802], [1063], [580], [1254], [84], [466], [916], [732], [1613], [1999], [2032], [1796], [1376], [1375], [1377], [1378], [2649], [1744], [2409], [774], [1546], [2213], [1192], [2261], [1912], [490], [2737], [1453], [1039], [1572], [554], [1979], [2632], [2360], [1660], [1582]]
+  dataset:
+    type: choice
+    options:
+      - cora_ml
+      # - citeseer
+
+sga_pprgo_median:
+  fixed:
+    model_label: Vanilla GCN 2
