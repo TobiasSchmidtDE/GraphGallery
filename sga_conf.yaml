@@ -62,4 +62,4 @@ grid:
 
 sga_pprgo_median:
   fixed:
-    model_label: Vanilla GCN 2
+    model_label: Vanilla GCN

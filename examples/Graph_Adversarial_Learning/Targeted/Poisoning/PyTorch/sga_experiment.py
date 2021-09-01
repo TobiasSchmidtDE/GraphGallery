@@ -247,7 +247,7 @@ def run(data_dir: str, dataset: str, attack: str, attack_params: Dict[str, Any],
 
     tmp_nodes = np.array(nodes)
     if nodes is None:
-        logits = eval_victim_model.predict(
+        logits = trainer_victim_model.predict(
             splits.test_nodes, transform="softmax")
         min_node_degree = int(1 / min(epsilons))
 
