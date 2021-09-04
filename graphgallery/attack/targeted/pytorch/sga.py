@@ -8,7 +8,7 @@ from graphgallery import functional as gf
 from graphgallery.utils import tqdm
 from graphgallery.attack.targeted import PyTorch
 from graphgallery.attack.targeted.targeted_attacker import TargetedAttacker
-
+from rgnn_at_scale.models.sgc import SGC as SGC_RGNN_AT_SCALE
 
 try:
     """It will be faster with torch_geometric"""
@@ -147,7 +147,8 @@ class SGA(TargetedAttacker):
         else:
             influence_nodes = neighbors
 
-        self.construct_sub_adj(influence_nodes, wrong_label_nodes, sub_nodes, sub_edges)
+        self.construct_sub_adj(
+            influence_nodes, wrong_label_nodes, sub_nodes, sub_edges)
 
         if attacker_nodes is not None:
             if self.direct_attack:
@@ -179,8 +180,10 @@ class SGA(TargetedAttacker):
         logit = output[self.target] + self.b
         # model calibration
         logit = logit.view(1, -1) / eps
-        loss = self.loss_fn(logit, self.true_label) - self.loss_fn(logit, self.wrong_label)  # nll_loss
-        gradients = torch.autograd.grad(loss, [edge_weights, non_edge_weights], create_graph=False)
+        loss = self.loss_fn(logit, self.true_label) - \
+            self.loss_fn(logit, self.wrong_label)  # nll_loss
+        gradients = torch.autograd.grad(
+            loss, [edge_weights, non_edge_weights], create_graph=False)
         return gradients
 
     def ego_subgraph(self):
@@ -212,9 +215,12 @@ class SGA(TargetedAttacker):
         ])
 
         self.indices = torch.LongTensor(indices).to(self.device)
-        self.edge_weights = nn.Parameter(torch.tensor(edge_weights)).to(self.device)
-        self.non_edge_weights = nn.Parameter(torch.tensor(non_edge_weights)).to(self.device)
-        self.self_loop_weights = torch.tensor(self_loop_weights).to(self.device)
+        self.edge_weights = nn.Parameter(
+            torch.tensor(edge_weights)).to(self.device)
+        self.non_edge_weights = nn.Parameter(
+            torch.tensor(non_edge_weights)).to(self.device)
+        self.self_loop_weights = torch.tensor(
+            self_loop_weights).to(self.device)
 
         self.edge_index = sub_edges
         self.non_edge_index = non_edges
@@ -236,6 +242,76 @@ class SGA(TargetedAttacker):
             self.edge_weights[index] = 0.0
             self.selfloop_degree[u] -= 1
             self.selfloop_degree[v] -= 1
+
+
+@PyTorch.register()
+class SGA_RGNN_AT_SCALE(SGA):
+    def process(self, surrogate: SGC_RGNN_AT_SCALE, reset=True):
+        from torch_sparse import SparseTensor
+        assert isinstance(surrogate, SGC_RGNN_AT_SCALE), surrogate
+
+        self.K = surrogate.K  # nodes with the same class labels
+        self.similar_nodes = [
+            np.where(self.graph.node_label == c)[0]
+            for c in range(self.num_classes)
+        ]
+
+        self.X = torch.tensor(self.graph.node_attr).to(self.device)
+        self.adj_matrix = SparseTensor.from_scipy(
+            self.graph.adj_matrix).to(self.device)
+        self.surrogate = surrogate
+        self.surrogate.deactivate_caching()
+        self.surrogate.eval()
+        self.logits = self.surrogate(data=self.X,
+                                     adj=self.adj_matrix).cpu().detach().numpy()
+
+        self.loss_fn = nn.CrossEntropyLoss()
+        if reset:
+            self.reset()
+        return self
+
+    def attack(self,
+               target,
+               num_budgets=None,
+               logit=None,
+               attacker_nodes=3,
+               direct_attack=True,
+               structure_attack=True,
+               feature_attack=False,
+               disable=False):
+
+        self.surrogate.normalize = False
+        super().attack(target,
+                       num_budgets=num_budgets,
+                       logit=logit,
+                       attacker_nodes=attacker_nodes,
+                       direct_attack=direct_attack,
+                       structure_attack=structure_attack,
+                       feature_attack=feature_attack,
+                       disable=disable)
+        self.surrogate.normalize = True
+
+    def compute_gradient(self, eps=5.0):
+
+        edge_weights = self.edge_weights
+        non_edge_weights = self.non_edge_weights
+        self_loop_weights = self.self_loop_weights
+        weights = torch.cat([
+            edge_weights, edge_weights, non_edge_weights, non_edge_weights,
+            self_loop_weights
+        ], dim=0)
+
+        weights = normalize_GCN(self.indices, weights, self.selfloop_degree)
+        logit = self.surrogate(data=self.X,
+                               adj=(self.indices, weights))[self.target]
+
+        # model calibration
+        logit = logit.view(1, -1) / eps
+        loss = self.loss_fn(logit, self.true_label) - \
+            self.loss_fn(logit, self.wrong_label)  # nll_loss
+        gradients = torch.autograd.grad(
+            loss, [edge_weights, non_edge_weights], create_graph=False)
+        return gradients
 
 
 def normalize_GCN(indices, weights, degree):

@@ -1,6 +1,6 @@
 seml:
   name: sga_cora_citeseer
-  executable: examples/Graph_Adversarial_Learning/Targeted/Poisoning/PyTorch/sga_experiment.py
+  executable: examples/Graph_Adversarial_Learning/Targeted/Poisoning/PyTorch/sga_experiment_rgnn_scale_models.py
   project_root_dir: ./
   output_dir: ./output
   conda_environment: graphgallery
@@ -20,7 +20,7 @@ fixed:
   data_dir: datasets/
   model_storage_type: pretrained
   surrogate_model_storage_type: pretrained
-  artifact_dir: cache
+  artifact_dir: /nfs/homedirs/schmidtt/git/robust-gnns-at-scale/cache
   nodes: None
   nodes_topk: 40
   device: cuda
